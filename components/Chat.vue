@@ -1,4 +1,5 @@
 <script>
+import axios from "axios";
 export default {
 data() {
     return {
@@ -11,13 +12,11 @@ data() {
         countMessage: 10,
         data: null,
         unreadMessage: 0,
-
         messageObject: {
             message: null,
             attachments: [],
             supportInfo: null
         },
-
         attachmentObject: {
             message: "",
             attachments: [{
@@ -27,8 +26,9 @@ data() {
             }],
             supportInfo: null
         },
-
         selectedFiles: [],
+        currentTime: new Date(),
+        time: '',
     };
 },
 methods: {
@@ -64,16 +64,23 @@ connectWebSocket() {
     },
 
     this.ws.onmessage = (event) => {
-        const receivedData = JSON.parse(event.data);       
+        const receivedData = JSON.parse(event.data);  
+
+        const hours = this.currentTime.getHours().toString().padStart(2, '0'); // добавляем ведущий ноль, если число часов < 10
+        const minutes = this.currentTime.getMinutes().toString().padStart(2, '0'); // добавляем ведущий ноль, если число минут < 10
+        this.time = `${hours}:${minutes}`
+
         // проверка отправленных сообщений
         if(receivedData.data){
             console.log('CLIENT');
             console.log(receivedData);
+
             if(receivedData.data.message){
-                this.messages.push( {sender: 'CLIENT', time: receivedData.data.time, content: receivedData.data.message} );
+                this.messages.push( {sender: 'CLIENT', content: receivedData.data.message, timestamp: this.time} );
+                console.log(this.messages)
             }
             else{
-                this.messages.push( {sender: 'CLIENT',  attachments: receivedData.data.attachments, time: receivedData.data.time});
+                this.messages.push( {sender: 'CLIENT',  attachments: receivedData.data.attachments, timestamp: this.time});
             }
             this.$nextTick(() => {
                 this.scrollToBottom();
@@ -83,7 +90,12 @@ connectWebSocket() {
         {
             console.log('OPERATOR');
             console.log(receivedData);
-            this.messages.push({sender: 'OPERATOR', content: receivedData.message, time: receivedData.time, attachments: receivedData.attachments});
+            if(receivedData.message){
+                this.messages.push({sender: 'OPERATOR', content: receivedData.message, timestamp: this.time, attachments: receivedData.attachments});
+            }
+            else{
+                this.messages.push({sender: 'OPERATOR', timestamp: this.time, attachments: receivedData.attachments});
+            }
 
             if(this.isChatOpen){ // если чат открылся или открыт, то прочитываем сообщения и берем непрочитанные, чтобы не сломался счетчик
                 this.readMessages();
@@ -157,6 +169,7 @@ async getLastMessages(){
     const headers = new Headers({
         'Device-Uid': this.device
     });
+
     // запрос на последние сообщения
     try {
         const response = await fetch(`/sklad/api/`+`/message?Page=1&${this.countMessage}`, {
@@ -190,6 +203,7 @@ async getLastMessages(){
 },
 sendMessage() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        const currentTime = new Date();
         if (this.message.trim()) {
             this.messageObject = {
                 message: this.message,
@@ -211,7 +225,7 @@ sendMessage() {
                         type: selectedFile.type,
                         data: selectedFile.data
                     }],
-                    supportInfo: null
+                    supportInfo: null,
                 };
 
                 this.ws.send(JSON.stringify(attachmentObject));
@@ -231,46 +245,58 @@ sendMessage() {
 },
 handleFileUpload(event) {
     const files = event.target.files;
-    const reader = new FileReader();
-    for (let i = 0; i < files.length; i++){
+
+    for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        reader.onload = ((file) => { // Используем замыкание для захвата значения переменной file
-            return (event) => {
-                const arrayBuffer = event.target.result;
-                const base64String = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
-                
-                let fileType = 'I'; // стандартное значение типа файла 
-                if (file.name.endsWith('.pdf') || file.name.endsWith('.doc') || file.name.endsWith('.docx') || file.name.endsWith('.txt')) { // тип документ
-                    fileType = 'D';
+        const reader = new FileReader();
 
-                    const selectedFile = {
-                        name: file.name,
-                        type: fileType,
-                        data: base64String
-                    };
+        reader.onload = (event) => {
+            const arrayBuffer = event.target.result;
+            const base64String = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
 
-                    this.selectedFiles.push(selectedFile); // добавляем файл в массив файлов
-                    console.log('Выбран файл:', selectedFile);
-                }
-                else // изображение
-                {
-                    const selectedFile = {
-                        name: file.name,
-                        type: fileType,
-                        data: base64String
-                    };
+            let fileType = 'I'; 
+            if (file.name.endsWith('.pdf') || file.name.endsWith('.doc') || file.name.endsWith('.docx') || file.name.endsWith('.txt')) { 
+                fileType = 'D';
+            }
 
-                    this.selectedFiles.push(selectedFile); // добавляем файл в массив файлов
-                    console.log('Выбран файл:', selectedFile);
-                }
+            const selectedFile = {
+                name: file.name,
+                type: fileType,
+                data: base64String
             };
-        })(file);
+
+            this.selectedFiles.push(selectedFile);
+            console.log('Выбран файл:', selectedFile);
+        };
         reader.readAsArrayBuffer(file);
     }
 },
 scrollToBottom() { 
     const chatbox = document.querySelector('.chatbot__main__chatbox');
     chatbox.scrollTop = chatbox.scrollHeight; // скролл вниз диалога
+},
+formatDate(timestamp) {
+    const date = new Date(timestamp * 1000);
+    const hours = date.getHours().toString().padStart(2, '0'); // добавляем ведущий ноль, если число часов < 10
+    const minutes = date.getMinutes().toString().padStart(2, '0'); // добавляем ведущий ноль, если число минут < 10
+    return `${hours}:${minutes}`;
+},
+downloadFile(url, filename) {
+    fetch('/sklad/static/attachments/' + url)
+    .then(response => response.blob())
+    .then(blob => {
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.setAttribute('download', filename); // имя файла для скачивания
+        link.style.display = 'none'; // сокрытие ссылки
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    })
+    .catch(error => {
+        console.error('Произошла ошибка при загрузке файла:', error);
+    });
 },
 },
 mounted() {
@@ -288,11 +314,13 @@ beforeDestroy() {
     <div class="chatbot__show">
 
       <button class="chatbot__show__toggler" rel="preload" v-show="!isChatOpen" id="open_btn" @click="toggleChat">
+
         <span class="material-symbols-outlined"><img src="@/assets/images/chat-icon.svg" alt="Чат"></span>
 
         <div v-show="unreadMessage.count > 0" class="chatbot__show__toggler__unreaded">
             <span class="chatbot__show__toggler__unreaded-count">{{ unreadMessage.count }}</span>
         </div>
+
       </button>
 
       <div class="chatbot__main" id="chat" rel="preload" v-show="isChatOpen">
@@ -314,15 +342,28 @@ beforeDestroy() {
                 <li class="chat" v-for="(messageObj, index) in messages" :key="index" 
                     :class="{'incoming': messageObj.sender === 'OPERATOR', 'outgoing': messageObj.sender === 'CLIENT'}">
 
-                    <p v-show="messageObj.content" >
-                        {{ messageObj.content}}
-                    </p>
+                    <div class="chatbot__main__chatbox__content">
+                        <p v-show="messageObj.content">
+                            {{ messageObj.content }}
+                            <span class="chat-time-wrapper"
+                                :class="{'incoming-time-operator': messageObj.sender === 'OPERATOR', 'outgoing-time-client': messageObj.sender === 'CLIENT'}">
+                                <span v-if="messageObj.created" class="chat-time">
+                                    {{ formatDate(messageObj.created) }}
+                                </span>
+
+                                <span v-else class="chat-time">
+                                    {{ messageObj.timestamp }}
+                                </span>
+                            </span>
+                        </p>
+                    </div>
 
                     <div v-show="messageObj.attachments" class="chatbot__main__chatbox__chat__attachments">
                         <ul class="chatbot__main__chatbox__chat__attachments-ul">
-                            <li class="chatbot__main__chatbox__chat__attachments-li__item" v-for="(attachment, index) in messageObj.attachments" :key="index">
-                                <a class="chatbot__main__chatbox__chat__attachments-item-href" :href="attachment.url" target="_blank">
-                                    <img
+                            <li class="chatbot__main__chatbox__chat__attachments-li__item" v-for="(attachment, index) in messageObj.attachments" :key="index" @click.prevent="downloadFile(attachment.url, attachment.name)">
+                                <a class="chatbot__main__chatbox__chat__attachments-item-href" :href="attachment.url" target="_blank" :download="attachment.name"">
+                                    <!-- Картинка, если это картинка -->
+                                    <img 
                                         :class="{
                                             'chatbot__main__chatbox__chat__attachments-item-href__img-image-operator': messageObj.sender === 'OPERATOR',
                                             'chatbot__main__chatbox__chat__attachments-item-href__img-image': messageObj.sender === 'CLIENT'
@@ -333,11 +374,24 @@ beforeDestroy() {
                                         :title="attachment.name" 
                                     />
 
+                                    <!-- Иконка документа -->
                                     <img class="chatbot__main__chatbox__chat__attachments-item-href__img-file" v-else src="@/assets/images/file-text-one.svg" 
                                         :alt="attachment.name" 
                                         :title="attachment.name" 
                                     />
                                 </a>
+                                <div class="chatbot__main__chatbox__content">
+                                    <span class="chat-time-wrapper"
+                                        :class="{'time-operator-attachments': messageObj.sender === 'OPERATOR', 'outgoing-time-client-attachments': messageObj.sender === 'CLIENT'}">
+                                        <span v-if="messageObj.created" class="chat-time">
+                                            {{ formatDate(messageObj.created) }}
+                                        </span>
+
+                                        <span v-else class="chat-time">
+                                            {{ messageObj.timestamp }}
+                                        </span>
+                                    </span>
+                                </div>
                             </li>
                         </ul>
                     </div>
@@ -345,13 +399,15 @@ beforeDestroy() {
                 </li>
             </ul>
 
+
+
             <div class="chatbot__main__textarea">
                 <label for="attachments-add" class="chatbot__main__textarea__attachments-btn">
                     <img src="@/assets/images/attachments-btn.svg" alt="">
                 </label>
-                <input type="file" id="attachments-add" style="display: none;" multiple @change="handleFileUpload">
+                <input id="attachments-add"type="file" style="display: none;" multiple @change="handleFileUpload">
                 <textarea v-model="message" placeholder="Введите сообщение"></textarea>
-                <span id="send-btn" class="material-symbols-outlined"><img @click="sendMessage" src="@/assets/images/send-button-chat.svg" alt="Отправить"></span>
+                <span class="material-symbols-outlined"><img @click="sendMessage" src="@/assets/images/send-button-chat.svg" alt="Отправить"></span>
             </div>
       </div>
     </div>
@@ -359,17 +415,24 @@ beforeDestroy() {
 
 <style scoped>
 
-.chatbot__show__toggler__unreaded {
-    height: 28px;
-    width: 28px;
+.time-operator-attachments, .outgoing-time-client-attachments {
+    color: #fff !important;
+    background-color: #fff !important;
+}
+
+.chat-time-wrapper {
     display: flex;
-    background-color: #9360FF;
-    justify-content: center;
-    align-items: center;
-    border-radius: 70%;
-    position: relative; /* Позиционируем относительно родительского блока */
-    left: 20px;
-    bottom: 26px;
+    justify-content: flex-end;
+    margin-top: 5px;
+}
+
+.chat-time {
+    font-size: 12px;
+    color: #D7D7D7;
+}
+
+.incoming-time-operator, .outgoing-time-client {
+    color: #fff !important;
 }
 
 .chatbot__show__toggler__unreaded-count {
@@ -377,7 +440,7 @@ beforeDestroy() {
     font-size: 15px;
     font-weight: bold;
     text-align: center;
-    position: absolute; /* Позиционируем абсолютно внутри родительского блока */
+    position: absolute;
 }
 .chatbot__main__chatbox__chat__attachments-item-href__img-image-operator {
     width: 100%;
@@ -480,20 +543,19 @@ beforeDestroy() {
 }
 
 .chatbot__main .chatbot__main__chatbox {
-    max-height: 300px; /* Можете настроить по своему усмотрению */
+    max-height: 300px;
     overflow-y: auto;
-    padding: 16px 5px 70px;
-    min-height: 150px;
+    padding: 16px 5px;
 }   
 
 .chatbot__main .chatbot__main__chatbox {
-    padding-bottom: 80px; /* Увеличьте отступ в зависимости от высоты .chatbot__main__textarea */
+    margin-bottom: 80px;
 }
 
 .chatbot__main__chatbox .chat{
     display: flex;
 }
-.chatbot__main__chatbox .incoming span{
+.chatbot__main__chatbox .incoming .outgoing span{
     width: 32px;
     height: 32px;
     align-self: self-end;
@@ -501,7 +563,6 @@ beforeDestroy() {
     text-align: center;
     line-height: 32px;
     border-radius: 4px;
-    margin: 0 10px 7px 0;
 }
 .chatbot__main__chatbox .outgoing{
     margin: 5px 0;

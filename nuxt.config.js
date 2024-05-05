@@ -56,6 +56,11 @@ export default {
       target: 'https://dev.andalex.biz',
       pathRewrite: {'^/sklad/api/': '/sklad/api/support'},
       changeOrigin: true,
+    },
+    'https://dev.andalex.biz/sklad/static/attachments/': {
+      target: 'https://dev.andalex.biz',
+      changeOrigin: true,
+      pathRewrite: {'^/sklad/static/attachments/': ''}
     }
   },
 
