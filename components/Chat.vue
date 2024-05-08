@@ -1,5 +1,4 @@
 <script>
-import axios from "axios";
 export default {
 data() {
     return {
@@ -54,11 +53,11 @@ connectWebSocket() {
     this.ws.onopen = () => { // при открытии подключения вывод последних сообщений, непрочитанных сообщений и скролл вниз
         console.log('WebSocket connection established');
 
-        this.getLastMessages();
+        this.getLastMessages(); // вывод последних сообщений при открытии соеденения
 
-        this.getUnreadedMessages();
+        this.getUnreadedMessages(); // вывод непрочитанных сообщений при открытии соеденения
 
-        this.$nextTick(() => {
+        this.$nextTick(() => { // скролл вниз
             this.scrollToBottom();
         });
     },
@@ -75,6 +74,7 @@ connectWebSocket() {
             console.log('CLIENT');
             console.log(receivedData);
 
+            // пуш в сообщения в зависимоти от того, что пришло
             if(receivedData.data.message){
                 this.messages.push( {sender: 'CLIENT', content: receivedData.data.message, timestamp: this.time} );
                 console.log(this.messages)
@@ -118,7 +118,7 @@ connectWebSocket() {
         this.ws = null;
     };
 },
-async readMessages(){
+async readMessages(){ // прочтение сообщений
     try{
         const headerDevice = new Headers({
             'Device-Uid': this.device,
@@ -141,7 +141,7 @@ async readMessages(){
         console.error('Failed to fetch messages:', error);
     }
 },
-async getUnreadedMessages(){
+async getUnreadedMessages(){ // вывод непрочитанных сообщений
     try{
         const headerDevice = new Headers({
             'Device-Uid': this.device
@@ -201,7 +201,7 @@ async getLastMessages(){
         console.error('Failed to fetch messages:', error);
     }
 },
-sendMessage() {
+sendMessage() { // отправка сообщения
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         const currentTime = new Date();
         if (this.message.trim()) {
@@ -243,7 +243,7 @@ sendMessage() {
         console.error('WebSocket is not connected.');
     }
 },
-handleFileUpload(event) {
+handleFileUpload(event) { // загрузка нескольких файлов
     const files = event.target.files;
 
     for (let i = 0; i < files.length; i++) {
@@ -275,7 +275,7 @@ scrollToBottom() {
     const chatbox = document.querySelector('.chatbot__main__chatbox');
     chatbox.scrollTop = chatbox.scrollHeight; // скролл вниз диалога
 },
-formatDate(timestamp) {
+formatDate(timestamp) { // конвертит время из int в дату и время
     const date = new Date(timestamp * 1000);
     const hours = date.getHours().toString().padStart(2, '0'); // добавляем ведущий ноль, если число часов < 10
     const minutes = date.getMinutes().toString().padStart(2, '0'); // добавляем ведущий ноль, если число минут < 10
@@ -433,6 +433,19 @@ beforeDestroy() {
 
 .incoming-time-operator, .outgoing-time-client {
     color: #fff !important;
+}
+
+.chatbot__show__toggler__unreaded {
+    height: 28px;
+    width: 28px;
+    display: flex;
+    background-color: #9360FF;
+    justify-content: center;
+    align-items: center;
+    border-radius: 70%;
+    position: relative;
+    left: 20px;
+    bottom: 26px;
 }
 
 .chatbot__show__toggler__unreaded-count {
