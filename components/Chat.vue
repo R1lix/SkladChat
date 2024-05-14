@@ -246,29 +246,42 @@ sendMessage() { // отправка сообщения
 handleFileUpload(event) { // загрузка нескольких файлов
     const files = event.target.files;
 
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const reader = new FileReader();
+    if(files.length <= 10){
 
-        reader.onload = (event) => {
-            const arrayBuffer = event.target.result;
-            const base64String = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
 
-            let fileType = 'I'; 
-            if (file.name.endsWith('.pdf') || file.name.endsWith('.doc') || file.name.endsWith('.docx') || file.name.endsWith('.txt')) { 
-                fileType = 'D';
+            if(file.size <= 7 * 1024 * 1024){
+                const reader = new FileReader();
+
+                reader.onload = (event) => {
+                    const arrayBuffer = event.target.result;
+                    const base64String = btoa(new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
+
+                    let fileType = 'I'; 
+                    if (file.name.endsWith('.pdf') || file.name.endsWith('.doc') || file.name.endsWith('.docx') || file.name.endsWith('.txt')) { 
+                        fileType = 'D';
+                    }
+
+                    const selectedFile = {
+                        name: file.name,
+                        type: fileType,
+                        data: base64String
+                    };
+
+                    this.selectedFiles.push(selectedFile);
+                    console.log('Выбран файл:', selectedFile);
+                };
+
+                reader.readAsArrayBuffer(file);
             }
-
-            const selectedFile = {
-                name: file.name,
-                type: fileType,
-                data: base64String
-            };
-
-            this.selectedFiles.push(selectedFile);
-            console.log('Выбран файл:', selectedFile);
-        };
-        reader.readAsArrayBuffer(file);
+            else{
+                alert('Размер файла слишком большой. Максимальный размер файла 7 МБ');
+            }
+        }
+    }
+    else {
+        alert('Нельзя прикрепить больше 10 файлов');
     }
 },
 scrollToBottom() { 
@@ -497,7 +510,7 @@ beforeDestroy() {
     position: absolute;
 }
 .chatbot__show{
-    max-height: 537px;
+    height: 537px;
 }
 .chatbot__main__close-chat-btn{
     cursor: pointer;
@@ -556,7 +569,7 @@ beforeDestroy() {
 }
 
 .chatbot__main .chatbot__main__chatbox {
-    max-height: 300px;
+    height: 270px;
     overflow-y: auto;
     padding: 16px 5px;
 }   
