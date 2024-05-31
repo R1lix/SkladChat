@@ -9,6 +9,8 @@ data() {
         host: 'https://dev.andalex.biz/sklad/api/support',
         device: 'testAuthDevice3',
         countMessage: 10,
+        countPage: 1,
+        isLoading: false,
         data: null,
         unreadMessage: 0,
         messageObject: {
@@ -27,9 +29,13 @@ data() {
         },
         selectedFiles: [],
         currentTime: new Date(),
+        lastDate: new Date(),
+        countSelectedFiles: null,
         time: '',
     };
 },
+
+
 methods: {
 toggleChat() {
     this.isChatOpen = !this.isChatOpen; // открытие и закрытие чата
@@ -47,6 +53,8 @@ toggleChat() {
         this.scrollToBottom();
     });
 },
+
+
 connectWebSocket() {
     this.ws = new WebSocket(`${this.ws_host}/chat?Device=${this.device}`); // подключение
 
@@ -70,6 +78,8 @@ connectWebSocket() {
         this.time = `${hours}:${minutes}`
 
         // проверка отправленных сообщений
+        // receivedData.data - клиент
+        // receivedData - оператора
         if(receivedData.data){
             console.log('CLIENT');
             console.log(receivedData);
@@ -82,6 +92,7 @@ connectWebSocket() {
             else{
                 this.messages.push( {sender: 'CLIENT',  attachments: receivedData.data.attachments, timestamp: this.time});
             }
+            
             this.$nextTick(() => {
                 this.scrollToBottom();
             });
@@ -90,6 +101,7 @@ connectWebSocket() {
         {
             console.log('OPERATOR');
             console.log(receivedData);
+
             if(receivedData.message){
                 this.messages.push({sender: 'OPERATOR', content: receivedData.message, timestamp: this.time, attachments: receivedData.attachments});
             }
@@ -118,7 +130,9 @@ connectWebSocket() {
         this.ws = null;
     };
 },
-async readMessages(){ // прочтение сообщений
+
+
+async readMessages(){
     try{
         const headerDevice = new Headers({
             'Device-Uid': this.device,
@@ -141,7 +155,9 @@ async readMessages(){ // прочтение сообщений
         console.error('Failed to fetch messages:', error);
     }
 },
-async getUnreadedMessages(){ // вывод непрочитанных сообщений
+
+
+async getUnreadedMessages(){
     try{
         const headerDevice = new Headers({
             'Device-Uid': this.device
@@ -164,46 +180,58 @@ async getUnreadedMessages(){ // вывод непрочитанных сообщ
         console.error('Failed to fetch messages:', error);
     }
 },
-async getLastMessages(){
-    // заголовок с девайсом
+
+
+async getLastMessages() {
+
     const headers = new Headers({
         'Device-Uid': this.device
     });
 
-    // запрос на последние сообщения
+    this.isLoading = true;
+
     try {
-        const response = await fetch(`/sklad/api/`+`/message?Page=1&${this.countMessage}`, {
+
+        const response = await fetch(`/sklad/api/` + `/message?Page=${this.countPage}&${this.countMessage}`, {
             method: 'GET',
             headers: headers
-        });
+            });
 
         if (!response.ok) {
             throw new Error('Network response was not ok');
-        }
-        else
-        {
-            // парс и реверс сообщений
-            this.data = await response.json();
-            this.messages = this.data.reverse();
+        } 
+        else {
+            const data = await response.json();
+            const newMessages = data.reverse();
+
+            const chatbox = this.$refs.chatbox;
+
+            // Сохраняем текущую позицию скролла
+            const oldScrollHeight = chatbox.scrollHeight;
+            const oldScrollTop = chatbox.scrollTop;
+
+            // Добавляем новые сообщения к существующим
+            this.messages = [...newMessages, ...this.messages];
             console.log('Messages loaded:', this.messages);
 
-            // пока просто проверка вложений
-            this.messages.forEach(message => {
-            if (message.attachments) {
-            message.attachments.forEach(attachment => {
-                console.log('Attachment name:', attachment.name);
-            });
-            }
-            });
-        }          
+            // Возвращаем скролл в то положение где он был
+            setTimeout(() => {
+                const newScrollHeight = chatbox.scrollHeight;
+                chatbox.scrollTop = oldScrollTop + (newScrollHeight - oldScrollHeight);
+            }, 0);
+        } 
     }
-    catch (error){
+    catch (error) {
         console.error('Failed to fetch messages:', error);
+    } 
+    finally {
+        this.isLoading = false;
     }
 },
+
+
 sendMessage() { // отправка сообщения
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        const currentTime = new Date();
         if (this.message.trim()) {
             this.messageObject = {
                 message: this.message,
@@ -229,6 +257,7 @@ sendMessage() { // отправка сообщения
                 };
 
                 this.ws.send(JSON.stringify(attachmentObject));
+                this.countSelectedFiles = null;
                 console.log('Attachment is sent:', attachmentObject);
             });
 
@@ -243,6 +272,8 @@ sendMessage() { // отправка сообщения
         console.error('WebSocket is not connected.');
     }
 },
+
+
 handleFileUpload(event) { // загрузка нескольких файлов
     const files = event.target.files;
 
@@ -251,7 +282,7 @@ handleFileUpload(event) { // загрузка нескольких файлов
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
 
-            if(file.size <= 7 * 1024 * 1024){
+            if(file.size <= 20 * 1024 * 1024){
                 const reader = new FileReader();
 
                 reader.onload = (event) => {
@@ -271,12 +302,13 @@ handleFileUpload(event) { // загрузка нескольких файлов
 
                     this.selectedFiles.push(selectedFile);
                     console.log('Выбран файл:', selectedFile);
+                    this.countSelectedFiles++;
                 };
 
                 reader.readAsArrayBuffer(file);
             }
             else{
-                alert('Размер файла слишком большой. Максимальный размер файла 7 МБ');
+                alert('Размер файла слишком большой. Максимальный размер файла 20 МБ');
             }
         }
     }
@@ -284,16 +316,46 @@ handleFileUpload(event) { // загрузка нескольких файлов
         alert('Нельзя прикрепить больше 10 файлов');
     }
 },
+
+
 scrollToBottom() { 
-    const chatbox = document.querySelector('.chatbot__main__chatbox');
+    const chatbox = this.$refs.chatbox;
     chatbox.scrollTop = chatbox.scrollHeight; // скролл вниз диалога
 },
+
+
+paginationScroll(){
+    const chatbox = this.$refs.chatbox;
+
+    if(chatbox.scrollTop === 0 && !this.isLoading){
+        this.countPage++;
+        this.getLastMessages();
+    }
+},
+
+
 formatDate(timestamp) { // конвертит время из int в дату и время
     const date = new Date(timestamp * 1000);
     const hours = date.getHours().toString().padStart(2, '0'); // добавляем ведущий ноль, если число часов < 10
     const minutes = date.getMinutes().toString().padStart(2, '0'); // добавляем ведущий ноль, если число минут < 10
     return `${hours}:${minutes}`;
 },
+
+
+formateDateWithoutTime(timestamp){
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleDateString();
+},
+
+
+isNewDate(createdDate) {
+    const currentDate = new Date();
+    const messageDate = new Date(createdDate);
+    // Сравниваем дни между текущей датой и датой сообщения
+    return currentDate.getDate() !== messageDate.getDate();
+},
+
+
 downloadFile(url, filename) {
     fetch('/sklad/static/attachments/' + url)
     .then(response => response.blob())
@@ -311,15 +373,43 @@ downloadFile(url, filename) {
         console.error('Произошла ошибка при загрузке файла:', error);
     });
 },
+
+
+handleKeyPress(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        this.sendMessage();
+    }
 },
+},
+
+
 mounted() {
-    this.connectWebSocket(); // подключение к сокету
+    this.connectWebSocket();
+
+    this.$nextTick(() => {
+        const chatbox = this.$refs.chatbox;
+        if (chatbox) {
+            chatbox.addEventListener('scroll', this.paginationScroll);
+        } 
+        else {
+            console.error('chatbox element not found');
+        }
+  });
+
+    this.lastDate.getDay();
 },
+
+
 beforeDestroy() {
     if (this.ws) {
         this.ws.close();
     }
+
+    const chatbox = this.$refs.chatbox;
+    chatbox.removeEventListener('scroll', this.paginationScroll);
 }
+
 };
 </script>
 
@@ -350,8 +440,11 @@ beforeDestroy() {
                     <span><img src="@/assets/images/online-factor-chat.svg" alt="Зелень"></span>
                 </div>
             </div>
+
+            
   
-            <ul class="chatbot__main__chatbox">
+            <ul ref="chatbox" class="chatbot__main__chatbox">
+
                 <li class="chat" v-for="(messageObj, index) in messages" :key="index" 
                     :class="{'incoming': messageObj.sender === 'OPERATOR', 'outgoing': messageObj.sender === 'CLIENT'}">
 
@@ -371,11 +464,12 @@ beforeDestroy() {
                         </p>
                     </div>
 
+                    
+
                     <div v-show="messageObj.attachments" class="chatbot__main__chatbox__chat__attachments">
                         <ul class="chatbot__main__chatbox__chat__attachments-ul">
                             <li class="chatbot__main__chatbox__chat__attachments-li__item" v-for="(attachment, index) in messageObj.attachments" :key="index" @click.prevent="downloadFile(attachment.url, attachment.name)">
                                 <a class="chatbot__main__chatbox__chat__attachments-item-href" :href="attachment.url" target="_blank" :download="attachment.name"">
-                                    <!-- Картинка, если это картинка -->
                                     <img 
                                         :class="{
                                             'chatbot__main__chatbox__chat__attachments-item-href__img-image-operator': messageObj.sender === 'OPERATOR',
@@ -387,7 +481,6 @@ beforeDestroy() {
                                         :title="attachment.name" 
                                     />
 
-                                    <!-- Иконка документа -->
                                     <img class="chatbot__main__chatbox__chat__attachments-item-href__img-file" v-else src="@/assets/images/file-text-one.svg" 
                                         :alt="attachment.name" 
                                         :title="attachment.name" 
@@ -408,7 +501,6 @@ beforeDestroy() {
                             </li>
                         </ul>
                     </div>
-
                 </li>
             </ul>
 
@@ -419,7 +511,8 @@ beforeDestroy() {
                     <img src="@/assets/images/attachments-btn.svg" alt="">
                 </label>
                 <input id="attachments-add"type="file" style="display: none;" multiple @change="handleFileUpload">
-                <textarea v-model="message" placeholder="Введите сообщение"></textarea>
+                <p class="upload-count-attachments">{{ countSelectedFiles }}</p>
+                <textarea v-model="message" @keypress.enter="handleKeyPress" placeholder="Введите сообщение"></textarea>
                 <span class="material-symbols-outlined"><img @click="sendMessage" src="@/assets/images/send-button-chat.svg" alt="Отправить"></span>
             </div>
       </div>
@@ -427,6 +520,32 @@ beforeDestroy() {
   </template> 
 
 <style scoped>
+
+.message-divider {
+    display: flex;
+    align-items: center;
+    margin: 20px 0;
+}
+
+.message-divider::before,
+.message-divider::after {
+    content: "";
+    flex: 1;
+    border-bottom: 1px solid #ccc;
+}
+
+.message-divider span {
+    margin: 0 10px;
+    color: #888;
+}
+
+.upload-count-attachments{
+    color: #9360FF;
+    font-weight: 700;
+    font-size: 1rem;
+    margin-top: 7px;
+    width: 20px;
+}
 
 .time-operator-attachments, .outgoing-time-client-attachments {
     color: #fff !important;
@@ -510,7 +629,7 @@ beforeDestroy() {
     position: absolute;
 }
 .chatbot__show{
-    height: 537px;
+    height: 400px;
 }
 .chatbot__main__close-chat-btn{
     cursor: pointer;
@@ -540,6 +659,7 @@ beforeDestroy() {
 }
 
 .chatbot__main{
+    height: 500px;
     position: fixed;
     right: 0px;
     bottom: 0px;
@@ -568,11 +688,20 @@ beforeDestroy() {
     color: #D7D7D7;
 }
 
-.chatbot__main .chatbot__main__chatbox {
-    height: 270px;
-    overflow-y: auto;
+.chatbot__main__chatbox {
+    display: flex;
     padding: 16px 5px;
-}   
+    overflow-y: auto;
+    height: 270px !important;
+}
+
+.chatbot__main__chatbox{
+    flex-direction: column;
+}
+
+.chatbot__main__chatbox:nth-of-type(1) li:first-child{
+    margin-top: auto !important;
+}
 
 .chatbot__main .chatbot__main__chatbox {
     margin-bottom: 80px;
@@ -611,6 +740,7 @@ beforeDestroy() {
     border-radius: 10px 10px 10px 0;
     margin-left:  15px;
 }
+
 .outgoing p{
     background: #3D00BE;
     border-radius: 10px 10px 0 10px;
